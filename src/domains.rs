@@ -97,6 +97,34 @@ pub struct Dns<'a> {
 }
 
 impl Dns<'_> {
+    /// Reads the current DNS host records for a domain
+    /// (`namecheap.domains.dns.getHosts`).
+    ///
+    /// Pass the domain split into its second-level and top-level parts, the same
+    /// way [`SetHostsRequest`] takes them (so `example.com` is `"example"`,
+    /// `"com"`). This is the read half of a read-modify-write update: fetch the
+    /// records, adjust them via [`GetHostsResult::to_host_records`], and send the
+    /// complete set back through [`set_hosts`](Dns::set_hosts).
+    ///
+    /// [`GetHostsResult::is_using_our_dns`] reports whether the domain points at
+    /// Namecheap's DNS; `set_hosts` only takes effect when it does.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) on transport failure, an API error
+    /// response, or a decode failure.
+    pub async fn get_hosts(&self, sld: &str, tld: &str) -> Result<GetHostsResult> {
+        let params = vec![
+            ("SLD".to_owned(), sld.to_owned()),
+            ("TLD".to_owned(), tld.to_owned()),
+        ];
+        let payload: GetHostsPayload = self
+            .client
+            .send("namecheap.domains.dns.getHosts", params)
+            .await?;
+        Ok(payload.result)
+    }
+
     /// Replaces the full set of DNS host records for a domain
     /// (`namecheap.domains.dns.setHosts`).
     ///
@@ -449,6 +477,27 @@ impl RecordType {
             RecordType::Caa => "CAA",
         }
     }
+
+    /// Parses a record type from the string Namecheap reports (for example in a
+    /// [`Dns::get_hosts`] response). Case-insensitive; returns `None` for an
+    /// unrecognized type.
+    #[must_use]
+    pub fn from_api_str(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_uppercase().as_str() {
+            "A" => RecordType::A,
+            "AAAA" => RecordType::Aaaa,
+            "CNAME" => RecordType::Cname,
+            "MX" => RecordType::Mx,
+            "MXE" => RecordType::Mxe,
+            "TXT" => RecordType::Txt,
+            "NS" => RecordType::Ns,
+            "URL" => RecordType::Url,
+            "URL301" => RecordType::Url301,
+            "FRAME" => RecordType::Frame,
+            "CAA" => RecordType::Caa,
+            _ => return None,
+        })
+    }
 }
 
 /// The mail setting to apply when calling [`Dns::set_hosts`].
@@ -483,6 +532,21 @@ impl EmailType {
             EmailType::PrivateEmail => "OX",
             EmailType::Gmail => "GMAIL",
         }
+    }
+
+    /// Parses an email type from the string Namecheap reports (for example in a
+    /// [`Dns::get_hosts`] response). Case-insensitive; returns `None` for an
+    /// unrecognized value such as `"NONE"`.
+    #[must_use]
+    pub fn from_api_str(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_uppercase().as_str() {
+            "MX" => EmailType::Mx,
+            "MXE" => EmailType::Mxe,
+            "FWD" => EmailType::Forward,
+            "OX" => EmailType::PrivateEmail,
+            "GMAIL" => EmailType::Gmail,
+            _ => return None,
+        })
     }
 }
 
@@ -662,6 +726,102 @@ pub struct SetHostsResult {
     pub is_success: bool,
 }
 
+// --- domains.dns.getHosts --------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct GetHostsPayload {
+    #[serde(rename = "DomainDNSGetHostsResult")]
+    result: GetHostsResult,
+}
+
+/// The current DNS configuration for a domain, returned by [`Dns::get_hosts`].
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct GetHostsResult {
+    /// The domain these records belong to.
+    #[serde(rename = "@Domain")]
+    pub domain: String,
+    /// Whether the domain currently points at Namecheap's DNS. When `false`,
+    /// [`Dns::set_hosts`] will not take effect until the nameservers are pointed
+    /// back at Namecheap.
+    #[serde(rename = "@IsUsingOurDNS", default, deserialize_with = "de_bool")]
+    pub is_using_our_dns: bool,
+    /// The raw email routing mode reported by the API (for example `"MX"`,
+    /// `"MXE"`, `"FWD"`, `"OX"`, `"GMAIL"`, or `"NONE"`). Parse it with
+    /// [`EmailType::from_api_str`] if you need the typed form.
+    #[serde(rename = "@EmailType", default)]
+    pub email_type: Option<String>,
+    /// The current host records.
+    #[serde(rename = "host", default)]
+    pub records: Vec<HostInfo>,
+}
+
+impl GetHostsResult {
+    /// Converts the current records into [`HostRecord`]s ready to pass back to
+    /// [`Dns::set_hosts`], which is the basis of a read-modify-write update.
+    ///
+    /// Every record type Namecheap's DNS supports is recognized, so in practice
+    /// nothing is dropped; a record whose type is somehow unrecognized is
+    /// skipped (see [`HostInfo::to_host_record`]).
+    #[must_use]
+    pub fn to_host_records(&self) -> Vec<HostRecord> {
+        self.records
+            .iter()
+            .filter_map(HostInfo::to_host_record)
+            .collect()
+    }
+}
+
+/// A single DNS host record as returned by [`Dns::get_hosts`].
+///
+/// This carries the read-only fields the API reports (such as
+/// [`host_id`](Self::host_id) and [`is_active`](Self::is_active)). To write a
+/// record back, convert it with [`to_host_record`](Self::to_host_record).
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct HostInfo {
+    /// Namecheap's internal identifier for this record.
+    #[serde(rename = "@HostId", default, deserialize_with = "de_opt_from_str")]
+    pub host_id: Option<u64>,
+    /// The host (subdomain), for example `"@"` or `"www"`.
+    #[serde(rename = "@Name")]
+    pub name: String,
+    /// The record type as reported by the API (for example `"A"` or `"MX"`).
+    #[serde(rename = "@Type")]
+    pub record_type: String,
+    /// The record value.
+    #[serde(rename = "@Address")]
+    pub address: String,
+    /// The `MX` preference, when applicable.
+    #[serde(rename = "@MXPref", default, deserialize_with = "de_opt_from_str")]
+    pub mx_pref: Option<u32>,
+    /// The record TTL in seconds.
+    #[serde(rename = "@TTL", default, deserialize_with = "de_opt_from_str")]
+    pub ttl: Option<u32>,
+    /// Whether the record is active.
+    #[serde(rename = "@IsActive", default, deserialize_with = "de_opt_bool")]
+    pub is_active: Option<bool>,
+}
+
+impl HostInfo {
+    /// Converts this record into a [`HostRecord`] for [`Dns::set_hosts`].
+    ///
+    /// Returns `None` only if [`record_type`](Self::record_type) is not a type
+    /// this crate recognizes (see [`RecordType::from_api_str`]); all standard
+    /// Namecheap record types are recognized.
+    #[must_use]
+    pub fn to_host_record(&self) -> Option<HostRecord> {
+        let record_type = RecordType::from_api_str(&self.record_type)?;
+        Some(HostRecord {
+            host_name: self.name.clone(),
+            record_type,
+            address: self.address.clone(),
+            mx_pref: self.mx_pref,
+            ttl: self.ttl,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -828,5 +988,60 @@ mod tests {
         assert!(SetHostsRequest::from_domain("nodot", records.clone()).is_none());
         assert!(SetHostsRequest::from_domain(".com", records.clone()).is_none());
         assert!(SetHostsRequest::from_domain("example.", records).is_none());
+    }
+
+    #[test]
+    fn parses_get_hosts_response_and_round_trips() {
+        let body = r#"<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+          <Errors />
+          <CommandResponse Type="namecheap.domains.dns.getHosts">
+            <DomainDNSGetHostsResult Domain="example.com" IsUsingOurDNS="true" EmailType="MX">
+              <host HostId="12" Name="@" Type="A" Address="203.0.113.10" MXPref="10" TTL="1800" IsActive="true" IsDDNSEnabled="false" />
+              <host HostId="13" Name="@" Type="MX" Address="mx.example.com" MXPref="10" TTL="1800" IsActive="true" />
+              <host HostId="14" Name="www" Type="CNAME" Address="example.com." MXPref="10" TTL="60" IsActive="true" />
+            </DomainDNSGetHostsResult>
+          </CommandResponse>
+        </ApiResponse>"#;
+
+        let payload: GetHostsPayload = crate::response::parse(StatusCode::OK, body).unwrap();
+        let result = payload.result;
+        assert_eq!(result.domain, "example.com");
+        assert!(result.is_using_our_dns);
+        assert_eq!(result.email_type.as_deref(), Some("MX"));
+        assert_eq!(result.records.len(), 3);
+        assert_eq!(result.records[0].host_id, Some(12));
+        assert_eq!(result.records[0].name, "@");
+        assert_eq!(result.records[0].record_type, "A");
+        assert_eq!(result.records[0].ttl, Some(1800));
+        assert_eq!(result.records[0].is_active, Some(true));
+
+        // Read-modify-write: the records convert straight back to writable form.
+        let writable = result.to_host_records();
+        assert_eq!(writable.len(), 3);
+        assert_eq!(writable[1].record_type, RecordType::Mx);
+        assert_eq!(writable[1].mx_pref, Some(10));
+        assert_eq!(writable[2].host_name, "www");
+        assert_eq!(writable[2].record_type, RecordType::Cname);
+    }
+
+    #[test]
+    fn record_and_email_types_parse_from_api_strings() {
+        for record_type in [
+            RecordType::A,
+            RecordType::Mx,
+            RecordType::Txt,
+            RecordType::Caa,
+        ] {
+            assert_eq!(
+                RecordType::from_api_str(record_type.as_str()),
+                Some(record_type)
+            );
+        }
+        assert_eq!(RecordType::from_api_str("cname"), Some(RecordType::Cname));
+        assert_eq!(RecordType::from_api_str("bogus"), None);
+
+        assert_eq!(EmailType::from_api_str("MX"), Some(EmailType::Mx));
+        assert_eq!(EmailType::from_api_str("fwd"), Some(EmailType::Forward));
+        assert_eq!(EmailType::from_api_str("NONE"), None);
     }
 }

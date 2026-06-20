@@ -15,6 +15,10 @@ Initial release.
   of production or sandbox environment.
 - `domains().check()` for domain availability (`namecheap.domains.check`).
 - `domains().create()` for domain registration (`namecheap.domains.create`).
+- `domains().dns().get_hosts()` for reading DNS host records
+  (`namecheap.domains.dns.getHosts`), plus `GetHostsResult::to_host_records` and
+  `HostInfo::to_host_record` to convert them back into writable records for
+  read-modify-write updates.
 - `domains().dns().set_hosts()` for DNS host records
   (`namecheap.domains.dns.setHosts`), with helpers for A, AAAA, CNAME, MX, and
   TXT records to support email setup (MX, SPF, DKIM, DMARC).

@@ -26,6 +26,7 @@ including pointing its email at a provider:
 | --- | --- | --- |
 | `client.domains().check(...)` | `namecheap.domains.check` | Check domain availability |
 | `client.domains().create(...)` | `namecheap.domains.create` | Register a domain |
+| `client.domains().dns().get_hosts(...)` | `namecheap.domains.dns.getHosts` | Read DNS host records |
 | `client.domains().dns().set_hosts(...)` | `namecheap.domains.dns.setHosts` | Replace DNS host records |
 | `client.users().get_balances()` | `namecheap.users.getBalances` | Read account balances |
 
@@ -136,6 +137,37 @@ println!("success = {}", result.is_success);
 `from_domain` splits a registrable domain at the first dot, which is correct for
 both `example.com` and `example.co.uk`. If you already have the parts, construct
 the request with `SetHostsRequest::new(sld, tld, records)`.
+
+## Reading and updating records
+
+Because `setHosts` replaces everything, the safe way to change a single record is
+read-modify-write: read the current records with `get_hosts`, change what you
+need, and send the full set back. `GetHostsResult::to_host_records` converts the
+records straight into the writable form `set_hosts` expects.
+
+```rust
+use namecheap_client::{HostRecord, SetHostsRequest};
+
+// `client` is a built Client (see Quick start above).
+let (sld, tld) = ("example", "com");
+
+// Read.
+let current = client.domains().dns().get_hosts(sld, tld).await?;
+for record in &current.records {
+    println!("{} {} {}", record.name, record.record_type, record.address);
+}
+
+// Modify: keep everything, add one record.
+let mut records = current.to_host_records();
+records.push(HostRecord::txt("_acme-challenge", "token-from-your-ca"));
+
+// Write the complete set back.
+let request = SetHostsRequest::new(sld, tld, records);
+client.domains().dns().set_hosts(&request).await?;
+```
+
+`GetHostsResult::is_using_our_dns` tells you whether the domain points at
+Namecheap's DNS; `set_hosts` only takes effect when it does.
 
 ## Registering a domain
 

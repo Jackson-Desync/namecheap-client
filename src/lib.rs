@@ -11,6 +11,8 @@
 //!   `namecheap.domains.check`
 //! - [`Client::domains().create()`](domains::Domains::create) -
 //!   `namecheap.domains.create`
+//! - [`Client::domains().dns().get_hosts()`](domains::Dns::get_hosts) -
+//!   `namecheap.domains.dns.getHosts`
 //! - [`Client::domains().dns().set_hosts()`](domains::Dns::set_hosts) -
 //!   `namecheap.domains.dns.setHosts`
 //! - [`Client::users().get_balances()`](users::Users::get_balances) -
@@ -71,6 +73,6 @@ pub use error::{ApiError, ApiErrorEntry, Error, Result};
 
 pub use domains::{
     Contact, Dns, DomainCheckResult, DomainCreateRequest, DomainCreateResult, Domains, EmailType,
-    HostRecord, RecordType, SetHostsRequest, SetHostsResult,
+    GetHostsResult, HostInfo, HostRecord, RecordType, SetHostsRequest, SetHostsResult,
 };
 pub use users::{Balances, Users};
