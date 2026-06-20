@@ -1,0 +1,12 @@
+# Build artifacts
+/target
+
+# Library crate: the lock file is not committed (see the Cargo book).
+/Cargo.lock
+
+# Editor and OS cruft
+**/*.rs.bk
+*.pdb
+.DS_Store
+.idea/
+.vscode/
