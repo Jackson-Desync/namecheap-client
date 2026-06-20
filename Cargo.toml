@@ -2,7 +2,7 @@
 name = "namecheap-client"
 version = "0.1.1"
 edition = "2021"
-description = "Unofficial async Rust client for the Namecheap API (domain availability, registration, DNS host records, and account balances)."
+description = "Unofficial async Rust client for the Namecheap API: domain availability and registration, DNS records, pricing, and account management."
 authors = ["Jackson Ballow <jackson@desync.ai>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Jackson-Desync/namecheap-client"
