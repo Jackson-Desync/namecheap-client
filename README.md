@@ -26,6 +26,8 @@ including pointing its email at a provider:
 | --- | --- | --- |
 | `client.domains().check(...)` | `namecheap.domains.check` | Check domain availability |
 | `client.domains().create(...)` | `namecheap.domains.create` | Register a domain |
+| `client.domains().list()` | `namecheap.domains.getList` | List domains (with auto-renew status) |
+| `client.domains().set_auto_renew(...)` | `namecheap.domains.setAutoRenew` | Enable or disable auto-renewal |
 | `client.domains().dns().get_hosts(...)` | `namecheap.domains.dns.getHosts` | Read DNS host records |
 | `client.domains().dns().set_hosts(...)` | `namecheap.domains.dns.setHosts` | Replace DNS host records |
 | `client.users().get_balances()` | `namecheap.users.getBalances` | Read account balances |
@@ -195,6 +197,25 @@ println!("registered = {}, charged = {:?}", result.registered, result.charged_am
 
 WhoisGuard privacy is requested by default; disable it with
 `.with_whois_privacy(false)`. Set custom nameservers with `.with_nameservers([...])`.
+
+## Listing domains and auto-renewal
+
+List the domains on the account (with each one's auto-renew flag and expiry), and
+turn auto-renewal on or off:
+
+```rust
+// `client` is a built Client (see Quick start above).
+let list = client.domains().list().await?;
+for domain in &list.domains {
+    println!("{}: auto_renew={} expires={:?}", domain.name, domain.auto_renew, domain.expires);
+}
+
+// Stop a domain from renewing automatically (it then lapses at expiry).
+client.domains().set_auto_renew("example.com", false).await?;
+```
+
+Domains registered through the API default to auto-renew off, so a domain will
+not renew on its own unless you enable it.
 
 ## Error handling
 

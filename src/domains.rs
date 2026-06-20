@@ -80,6 +80,61 @@ impl<'a> Domains<'a> {
         Ok(payload.result)
     }
 
+    /// Lists the domains in the account (`namecheap.domains.getList`).
+    ///
+    /// Returns the first page (up to 100 domains) together with paging totals.
+    /// Compare [`DomainListResult::total_items`] with the number of returned
+    /// domains to tell whether more pages exist. Each [`DomainListItem`] reports
+    /// its [`auto_renew`](DomainListItem::auto_renew) flag and expiry, which is
+    /// the read side of managing renewals.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) on transport failure, an API error
+    /// response, or a decode failure.
+    pub async fn list(&self) -> Result<DomainListResult> {
+        let params = vec![("PageSize".to_owned(), "100".to_owned())];
+        let payload: GetListPayload = self
+            .client
+            .send("namecheap.domains.getList", params)
+            .await?;
+        Ok(DomainListResult {
+            domains: payload.result.domains,
+            total_items: payload.paging.total_items,
+            current_page: payload.paging.current_page,
+            page_size: payload.paging.page_size,
+        })
+    }
+
+    /// Enables or disables auto-renewal for a domain
+    /// (`namecheap.domains.setAutoRenew`).
+    ///
+    /// Pass the full domain name (for example `"example.com"`). Passing `false`
+    /// is how you stop a domain from renewing automatically: it will then lapse
+    /// at expiry unless you renew it. Read the current state from
+    /// [`list`](Domains::list) via [`DomainListItem::auto_renew`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) on transport failure, an API error
+    /// response, or a decode failure.
+    pub async fn set_auto_renew(&self, domain: &str, enabled: bool) -> Result<SetAutoRenewResult> {
+        let params = vec![
+            ("DomainName".to_owned(), domain.to_owned()),
+            (
+                "AutoRenew".to_owned(),
+                if enabled { "true" } else { "false" }.to_owned(),
+            ),
+        ];
+        let payload: SetAutoRenewPayload = self
+            .client
+            .send("namecheap.domains.setAutoRenew", params)
+            .await?;
+        payload
+            .into_result()
+            .ok_or(crate::error::Error::EmptyResponse)
+    }
+
     /// Accessor for `namecheap.domains.dns.*` commands.
     #[must_use]
     pub fn dns(&self) -> Dns<'a> {
@@ -822,6 +877,109 @@ impl HostInfo {
     }
 }
 
+// --- domains.getList -------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct GetListPayload {
+    #[serde(rename = "DomainGetListResult", default)]
+    result: GetListInner,
+    #[serde(rename = "Paging", default)]
+    paging: Paging,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GetListInner {
+    #[serde(rename = "Domain", default)]
+    domains: Vec<DomainListItem>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct Paging {
+    #[serde(rename = "TotalItems", default)]
+    total_items: u32,
+    #[serde(rename = "CurrentPage", default)]
+    current_page: u32,
+    #[serde(rename = "PageSize", default)]
+    page_size: u32,
+}
+
+/// The result of [`Domains::list`]: the account's domains plus paging totals.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DomainListResult {
+    /// The domains on the returned page.
+    pub domains: Vec<DomainListItem>,
+    /// The total number of domains in the account, across all pages.
+    pub total_items: u32,
+    /// The page number that was returned.
+    pub current_page: u32,
+    /// The page size used for the request.
+    pub page_size: u32,
+}
+
+/// A single domain entry from [`Domains::list`].
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct DomainListItem {
+    /// Namecheap's internal identifier for the domain.
+    #[serde(rename = "@ID", default, deserialize_with = "de_opt_from_str")]
+    pub id: Option<u64>,
+    /// The domain name.
+    #[serde(rename = "@Name")]
+    pub name: String,
+    /// The creation date as reported by the API (for example `"06/20/2026"`).
+    #[serde(rename = "@Created", default)]
+    pub created: Option<String>,
+    /// The expiry date as reported by the API.
+    #[serde(rename = "@Expires", default)]
+    pub expires: Option<String>,
+    /// Whether the domain has expired.
+    #[serde(rename = "@IsExpired", default, deserialize_with = "de_opt_bool")]
+    pub is_expired: Option<bool>,
+    /// Whether the domain is registrar-locked.
+    #[serde(rename = "@IsLocked", default, deserialize_with = "de_opt_bool")]
+    pub is_locked: Option<bool>,
+    /// Whether the domain is set to renew automatically.
+    #[serde(rename = "@AutoRenew", default, deserialize_with = "de_bool")]
+    pub auto_renew: bool,
+    /// The WhoisGuard status (for example `"ENABLED"` or `"NOTPRESENT"`).
+    #[serde(rename = "@WhoisGuard", default)]
+    pub whois_guard: Option<String>,
+    /// Whether the domain currently uses Namecheap's DNS.
+    #[serde(rename = "@IsOurDNS", default, deserialize_with = "de_opt_bool")]
+    pub is_our_dns: Option<bool>,
+}
+
+// --- domains.setAutoRenew --------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct SetAutoRenewPayload {
+    // The live API returns `SetAutoRenewResult`; some references use the
+    // `DomainSetAutoRenewResult` spelling, so accept either.
+    #[serde(rename = "SetAutoRenewResult", default)]
+    result: Option<SetAutoRenewResult>,
+    #[serde(rename = "DomainSetAutoRenewResult", default)]
+    alt_result: Option<SetAutoRenewResult>,
+}
+
+impl SetAutoRenewPayload {
+    fn into_result(self) -> Option<SetAutoRenewResult> {
+        self.result.or(self.alt_result)
+    }
+}
+
+/// The result of [`Domains::set_auto_renew`].
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct SetAutoRenewResult {
+    /// The domain whose auto-renew setting was changed.
+    #[serde(rename = "@Domain")]
+    pub domain: String,
+    /// Whether the change succeeded.
+    #[serde(rename = "@IsSuccess", deserialize_with = "de_bool")]
+    pub is_success: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1043,5 +1201,68 @@ mod tests {
         assert_eq!(EmailType::from_api_str("MX"), Some(EmailType::Mx));
         assert_eq!(EmailType::from_api_str("fwd"), Some(EmailType::Forward));
         assert_eq!(EmailType::from_api_str("NONE"), None);
+    }
+
+    #[test]
+    fn parses_get_list_response() {
+        let body = r#"<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+          <Errors />
+          <CommandResponse Type="namecheap.domains.getList">
+            <DomainGetListResult>
+              <Domain ID="1120966" Name="alpha.com" User="someone" Created="06/19/2026" Expires="06/20/2027" IsExpired="false" IsLocked="false" AutoRenew="false" WhoisGuard="NOTPRESENT" IsPremium="false" IsOurDNS="true" />
+              <Domain ID="1120967" Name="beta.com" User="someone" Created="06/19/2026" Expires="06/20/2027" IsExpired="false" IsLocked="false" AutoRenew="true" WhoisGuard="ENABLED" IsPremium="false" IsOurDNS="true" />
+            </DomainGetListResult>
+            <Paging>
+              <TotalItems>2</TotalItems>
+              <CurrentPage>1</CurrentPage>
+              <PageSize>100</PageSize>
+            </Paging>
+          </CommandResponse>
+        </ApiResponse>"#;
+
+        let payload: GetListPayload = crate::response::parse(StatusCode::OK, body).unwrap();
+        assert_eq!(payload.paging.total_items, 2);
+        assert_eq!(payload.paging.page_size, 100);
+        assert_eq!(payload.result.domains.len(), 2);
+
+        let alpha = &payload.result.domains[0];
+        assert_eq!(alpha.name, "alpha.com");
+        assert_eq!(alpha.id, Some(1120966));
+        assert!(!alpha.auto_renew);
+        assert_eq!(alpha.expires.as_deref(), Some("06/20/2027"));
+        assert_eq!(alpha.is_our_dns, Some(true));
+
+        assert!(payload.result.domains[1].auto_renew);
+        assert_eq!(
+            payload.result.domains[1].whois_guard.as_deref(),
+            Some("ENABLED")
+        );
+    }
+
+    #[test]
+    fn parses_set_auto_renew_response_both_spellings() {
+        // The form the live API returned.
+        let observed = r#"<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+          <Errors />
+          <CommandResponse Type="namecheap.domains.setAutoRenew">
+            <SetAutoRenewResult Domain="example.com" IsSuccess="true" />
+          </CommandResponse>
+        </ApiResponse>"#;
+        let payload: SetAutoRenewPayload =
+            crate::response::parse(StatusCode::OK, observed).unwrap();
+        let result = payload.into_result().unwrap();
+        assert_eq!(result.domain, "example.com");
+        assert!(result.is_success);
+
+        // The alternative element spelling some references use.
+        let alternative = r#"<ApiResponse Status="OK" xmlns="http://api.namecheap.com/xml.response">
+          <Errors />
+          <CommandResponse Type="namecheap.domains.setAutoRenew">
+            <DomainSetAutoRenewResult Domain="example.com" IsSuccess="true" />
+          </CommandResponse>
+        </ApiResponse>"#;
+        let payload: SetAutoRenewPayload =
+            crate::response::parse(StatusCode::OK, alternative).unwrap();
+        assert!(payload.into_result().unwrap().is_success);
     }
 }

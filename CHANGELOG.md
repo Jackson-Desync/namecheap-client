@@ -15,6 +15,10 @@ Initial release.
   of production or sandbox environment.
 - `domains().check()` for domain availability (`namecheap.domains.check`).
 - `domains().create()` for domain registration (`namecheap.domains.create`).
+- `domains().list()` for listing account domains with their auto-renew status
+  and expiry (`namecheap.domains.getList`).
+- `domains().set_auto_renew()` to enable or disable a domain's auto-renewal
+  (`namecheap.domains.setAutoRenew`).
 - `domains().dns().get_hosts()` for reading DNS host records
   (`namecheap.domains.dns.getHosts`), plus `GetHostsResult::to_host_records` and
   `HostInfo::to_host_record` to convert them back into writable records for
