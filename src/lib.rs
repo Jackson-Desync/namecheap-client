@@ -21,6 +21,8 @@
 //!   `namecheap.domains.dns.setHosts`
 //! - [`Client::users().get_balances()`](users::Users::get_balances) -
 //!   `namecheap.users.getBalances`
+//! - [`Client::users().get_pricing()`](users::Users::get_pricing) -
+//!   `namecheap.users.getPricing`
 //!
 //! # Requirements
 //!
@@ -80,4 +82,7 @@ pub use domains::{
     DomainListResult, Domains, EmailType, GetHostsResult, HostInfo, HostRecord, RecordType,
     SetAutoRenewResult, SetHostsRequest, SetHostsResult,
 };
-pub use users::{Balances, Users};
+pub use users::{
+    Balances, Price, PricingRequest, PricingResult, ProductCategoryPricing, ProductPricing,
+    ProductTypePricing, Users,
+};

@@ -1,6 +1,6 @@
 [package]
 name = "namecheap-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Unofficial async Rust client for the Namecheap API (domain availability, registration, DNS host records, and account balances)."
 authors = ["Jackson Ballow <jackson@desync.ai>"]

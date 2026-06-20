@@ -31,6 +31,7 @@ including pointing its email at a provider:
 | `client.domains().dns().get_hosts(...)` | `namecheap.domains.dns.getHosts` | Read DNS host records |
 | `client.domains().dns().set_hosts(...)` | `namecheap.domains.dns.setHosts` | Replace DNS host records |
 | `client.users().get_balances()` | `namecheap.users.getBalances` | Read account balances |
+| `client.users().get_pricing(...)` | `namecheap.users.getPricing` | Look up standard TLD prices |
 
 Not yet covered: full endpoint coverage, a blocking (synchronous) API, and
 reseller commands. The surface area is intentionally small. If a command you need
@@ -216,6 +217,26 @@ client.domains().set_auto_renew("example.com", false).await?;
 
 Domains registered through the API default to auto-renew off, so a domain will
 not renew on its own unless you enable it.
+
+## Checking prices
+
+Standard (non-premium) TLD pricing is a free, read-only lookup. The response is
+nested, so `prices()` flattens it to one entry per available duration:
+
+```rust
+use namecheap_client::PricingRequest;
+
+// `client` is a built Client (see Quick start above).
+let result = client.users()
+    .get_pricing(&PricingRequest::domains().action("REGISTER").tld("com"))
+    .await?;
+for price in result.prices() {
+    println!("{} {}: {} {}", price.duration, price.duration_type, price.price, price.currency);
+}
+```
+
+For a *premium* domain, the per-name price instead comes from `check()`, via
+`DomainCheckResult::premium_registration_price`.
 
 ## Error handling
 
